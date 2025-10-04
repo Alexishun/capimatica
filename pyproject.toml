@@ -10,5 +10,5 @@ dependencies = [
     "streamlit>=1.48.1",
     "vega-datasets>=0.9.0",
     "folium>=0.17",
-    "streamlit-folium>=0.22"
+    "streamlit-folium>=0.22",
 ]
