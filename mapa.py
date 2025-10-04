@@ -2,8 +2,6 @@ from datetime import datetime
 import streamlit as st
 import altair as alt
 import vega_datasets
-import folium
-from streamlit_folium import st_folium
 
 
 full_df = vega_datasets.data("seattle_weather")
@@ -54,14 +52,6 @@ max_prec_2014 = df_2014["precipitation"].max()
 min_prec_2015 = df_2015["precipitation"].min()
 min_prec_2014 = df_2014["precipitation"].min()
 
-st.title("Selecciona un lugar en el mapa 🌍")
-m = folium.Map(location=[-9.19, -75.0152], zoom_start=5)
-m.add_child(folium.LatLngPopup())
-st_data = st_folium(m, width=700, height=500)
-if st_data["last_clicked"] is not None:
-    lat = st_data["last_clicked"]["lat"]
-    lon = st_data["last_clicked"]["lng"]
-    st.success(f"Coordenadas seleccionadas: Latitud = {lat:.6f}, Longitud = {lon:.6f}")
 
 with st.container(horizontal=True, gap="medium"):
     cols = st.columns(2, gap="medium", width=300)
