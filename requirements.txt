@@ -1,7 +1,0 @@
-streamlit>=1.37
-altair>=5.3
-vega-datasets>=0.9
-pandas>=2.0
-folium>=0.17
-streamlit-folium>=0.22
-
