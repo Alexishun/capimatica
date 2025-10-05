@@ -55,6 +55,11 @@ empty_pred= None
 
 hour= None
 
+if "prediction" not in st.session_state:
+    st.session_state.prediction = None
+if "api_error" not in st.session_state:
+    st.session_state.api_error = None
+
 # Helpers robustos
 def safe_get(d, key, default=None):
     try:
@@ -139,100 +144,88 @@ with col_right:
     st.markdown("### Weather Explainer")
 
     with st.container(border=True):
+        if lat is None or lon is None:
+            st.info("Click on the map to pick a location and select when.")
+        elif date is None or hour is None:
+            st.info("Choose a date and hour.")
+        else:
+            if st.button("Get forecast", use_container_width=True):
+                try:
+                    st.session_state.api_error = None
+                    pred = get_weather_prediction(lat, lon, date, hour)
+                    st.session_state.prediction = pred
+
+                    # (Opcional) texto del LLM
+                    with st.spinner("Generating weather summary..."):
+                        narrative = describe_from_prediction(pred, activity=None)
+                    st.markdown(narrative)
+
+                except requests.HTTPError as e:
+                    st.session_state.api_error = e.response.text
+                except Exception as e:
+                    st.session_state.api_error = str(e)
+
+            # Muestra error de API si lo hubo
+            if st.session_state.api_error:
+                st.error(f"API error: {st.session_state.api_error}")
+
+prediction = st.session_state.prediction
+if prediction:
+    # Helpers
+    def safe_get(d, key, default=None):
         try:
-            # 1) Obtener la predicción completa desde tu API
-            prediction = get_weather_prediction(lat, lon, date, hour)
+            return d.get(key, default) if isinstance(d, dict) else default
+        except Exception:
+            return default
 
-            # 2) (Opcional) mostrar algunos valores en la UI
-            stats = prediction.get("stats", {}) or {}
-            probs = {
-                "prob_lluvia":     prediction.get("prob_lluvia", 0.0),
-                "prob_calor":      prediction.get("prob_calor", 0.0),
-                "prob_frio":       prediction.get("prob_frio", 0.0),
-                "prob_viento":     prediction.get("prob_viento", 0.0),
-                "prob_muy_humedo": prediction.get("prob_muy_humedo", 0.0),
-                "prob_neblina":    prediction.get("prob_neblina", 0.0),
-            }
+    def to_float(x, default=0.0):
+        try: return float(x)
+        except Exception: return default
 
-            # Valores para mostrar (no son necesarios para el LLM)
-            temp_c   = float(stats.get("temp_C_mean", 24.2))
-            wind_ms  = float(stats.get("viento_ms_mean", 3.6))
-            hum_raw  = float(stats.get("humedad_mean", 0.58))
-            humidity = hum_raw * 100 if hum_raw <= 1 else hum_raw  # kg/kg -> %
-            rain_prob_pct = float(probs["prob_lluvia"]) * 100
+    def pct(x, nd=0, default=0.0):
+        try: return round(float(x) * 100.0, nd)
+        except Exception: return default
 
-            st.write(f"**Temp (mean):** {temp_c:.1f} °C  |  **Wind:** {wind_ms:.1f} m/s  |  **Humidity:** {humidity:.0f}%  |  **Rain prob:** {rain_prob_pct:.0f}%")
+    # Probabilidades (0..1 -> %)
+    p_lluvia  = pct(safe_get(prediction, "prob_lluvia"),   nd=1)
+    p_calor   = pct(safe_get(prediction, "prob_calor"),    nd=1)
+    p_frio    = pct(safe_get(prediction, "prob_frio"),     nd=1)
+    p_viento  = pct(safe_get(prediction, "prob_viento"),   nd=1)
+    p_muy_hum = pct(safe_get(prediction, "prob_muy_humedo"), nd=1)
+    p_neblina = pct(safe_get(prediction, "prob_neblina"),  nd=2)
 
-            # 3) Actividad opcional desde UI
-            # activity = st.selectbox("Activity", ["", "hiking", "picnic", "cycling"]) or None
-            activity = None
+    # Stats
+    stats = safe_get(prediction, "stats", {}) or {}
+    temp_c      = to_float(safe_get(stats, "temp_C_mean"),       default=0.0)
+    precip_mm_h = to_float(safe_get(stats, "precip_mm_h_mean"),  default=0.0)
+    viento_ms   = to_float(safe_get(stats, "viento_ms_mean"),    default=0.0)
+    hum_raw     = to_float(safe_get(stats, "humedad_mean"),      default=0.0)
+    hum_pct     = hum_raw * 100.0 if hum_raw <= 1 else hum_raw
 
-            # 4) Generar texto con /describe PASÁNDOLE prediction
-            with st.spinner("Generating weather summary..."):
-                narrative = describe_from_prediction(prediction, activity=activity)
+    # Render dinámico según selected_vars (opcional: usa tu bloque dinámico)
+    st.markdown("### ⛅ Probabilities")
+    with st.container():
+        cols = st.columns(3, gap="medium")
+        with cols[0]: st.metric("Rain probability", p_lluvia)
+        with cols[1]: st.metric("Heat probability", p_calor)
+        with cols[2]: st.metric("Cold probability", p_frio)
 
-            st.markdown(narrative)
+        cols = st.columns(3, gap="medium")
+        with cols[0]: st.metric("Windy probability", p_viento)
+        with cols[1]: st.metric("Very humid probability", p_muy_hum)
+        with cols[2]: st.metric("Fog probability", p_neblina)
 
-        except requests.HTTPError as e:
-            st.error(f"API error: {e.response.text}")
-        except Exception as e:
-            st.error(f"Unexpected error: {e}")
+    st.markdown("### 📊 Aggregated stats")
+    with st.container():
+        cols = st.columns(4, gap="medium")
+        with cols[0]: st.metric("Mean temperature", f"{temp_c:.1f} °C")
+        with cols[1]: st.metric("Mean wind", f"{viento_ms:.1f} m/s")
+        with cols[2]: st.metric("Mean humidity", f"{hum_pct:.0f} %")
+        with cols[3]: st.metric("Mean precipitation", f"{precip_mm_h:.3f} mm/h")
 
-
-# Probabilidades (0..1 -> %)
-p_lluvia  = pct(safe_get(prediction, "prob_lluvia"),   nd=1)
-p_calor   = pct(safe_get(prediction, "prob_calor"),    nd=1)
-p_frio    = pct(safe_get(prediction, "prob_frio"),     nd=1)
-p_viento  = pct(safe_get(prediction, "prob_viento"),   nd=1)
-p_muy_hum = pct(safe_get(prediction, "prob_muy_humedo"), nd=1)
-p_neblina = pct(safe_get(prediction, "prob_neblina"),  nd=2)
-
-# Stats (vienen dentro de prediction['stats'])
-stats = safe_get(prediction, "stats", default={}) or {}
-
-temp_c      = to_float(safe_get(stats, "temp_C_mean"),       default=0.0)
-precip_mm_h = to_float(safe_get(stats, "precip_mm_h_mean"),  default=0.0)
-viento_ms   = to_float(safe_get(stats, "viento_ms_mean"),    default=0.0)
-hum_raw     = to_float(safe_get(stats, "humedad_mean"),      default=0.0)
-
-# Humedad: si está en [0..1] (kg/kg), la pasamos a %
-hum_pct     = hum_raw * 100.0 if hum_raw <= 1 else hum_raw
-
-st.markdown("### ⛅ Probabilities")
-
-with st.container():
-    cols = st.columns(3, gap="medium")
-    with cols[0]:
-        st.metric("Rain probability", p_lluvia)
-    with cols[1]:
-        st.metric("Heat probability", p_calor)
-    with cols[2]:
-        st.metric("Cold probability", p_frio)
-
-    cols = st.columns(3, gap="medium")
-    with cols[0]:
-        st.metric("Windy probability", p_viento)
-    with cols[1]:
-        st.metric("Very humid probability", p_muy_hum)
-    with cols[2]:
-        st.metric("Fog probability", p_neblina)
-
-st.markdown("### 📊 Aggregated stats")
-with st.container():
-    cols = st.columns(4, gap="medium")
-    with cols[0]:
-        st.metric("Mean temperature", f"{temp_c:.1f} °C")
-    with cols[1]:
-        st.metric("Mean wind", f"{viento_ms:.1f} m/s")
-    with cols[2]:
-        st.metric("Mean humidity", f"{hum_pct:.0f} %")
-    with cols[3]:
-        st.metric("Mean precipitation", f"{precip_mm_h:.3f} mm/h")
-
-# Si tienes un campo note en la predicción:
-note = prediction.get("note") if "prediction" in locals() else None
-if note:
-    st.info(f"Note: {note}")
-
-""
-""
+    note = prediction.get("note")
+    if note:
+        st.info(f"Note: {note}")
+else:
+    # Nada seleccionado todavía → no romper; UI limpia
+    st.caption("Pick a location, date and hour, then click **Get forecast**.")
