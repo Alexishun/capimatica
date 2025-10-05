@@ -16,23 +16,24 @@ connection = pymysql.connect(
 
 try: 
     cursor = connection.cursor()
-    create_table_query = """
-    CREATE TABLE IF NOT EXISTS puno_feature (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        fecha_hora DATETIME NOT NULL,
-        y_humedad FLOAT,
-        y_precipitacion FLOAT,
-        y_speedwind FLOAT,
-        y_temperatura FLOAT,
-        y_radiacion FLOAT,
-        y_sensacion FLOAT
-    );
-    """
-    cursor.execute(create_table_query)
+    # create_table_query = """
+    # CREATE TABLE IF NOT EXISTS puno_feature (
+    #     id INT AUTO_INCREMENT PRIMARY KEY,
+    #     fecha_hora DATETIME NOT NULL,
+    #     y_humedad FLOAT,
+    #     y_precipitacion FLOAT,
+    #     y_speedwind FLOAT,
+    #     y_temperatura FLOAT,
+    #     y_radiacion FLOAT,
+    #     y_sensacion FLOAT
+    # );
+    # """
+    # cursor.execute(create_table_query)
     
     cursor.execute("show databases;")
     cursor.execute("use defaultdb;")
     cursor.execute("show tables;")
+    # cursor.execute("select * from tarapoto_feature limit 10")
     print(cursor.fetchall())
 finally:
     connection.close()

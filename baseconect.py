@@ -17,7 +17,7 @@ def align_to_hour(df):
     df['x'] = pd.to_datetime(df['x'], utc=True).dt.floor('h')  # 2019-12-27T00:30:00Z -> 2019-12-27 00:00:00+00:00
     return df
 
-lugar = 'piura'
+lugar = 'lima'
 df = pd.read_csv(f"bases en csv/{lugar} hum.csv")       # reemplaza con tu CSV
 df1 = pd.read_csv(f"bases en csv/{lugar} precipitacion.csv")
 df2 = pd.read_csv(f"bases en csv/{lugar} speed.csv")
@@ -41,7 +41,7 @@ features_cusco = (
     .merge(df5, on='x', suffixes=('', '_sensacion'))
 )
 features_cusco=features_cusco.rename(columns={'x':'fecha_hora','y':'y_speedwind'})
-
+print(features_cusco.head())
 features_cusco=features_cusco[features_cusco['fecha_hora']>'2020-01-01 00:00:00+00:00']
 features_cusco.to_sql(
     name='lima_feature',

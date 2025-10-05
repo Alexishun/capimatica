@@ -6,6 +6,9 @@ import vega_datasets
 import folium
 from folium.plugins import Fullscreen, MiniMap, MeasureControl, MousePosition
 import altair as alt
+import requests
+from typing import Dict, Any, Tuple
+
 
 from streamlit_folium import st_folium
 
@@ -21,9 +24,9 @@ st.set_page_config(
 
 
 """
-# Is today good for ....  hiking, picnic, biking, surfing, BBQ with friends?
+# Is todate good for ....  hiking, picnic, biking, surfing, BBQ with friends?
 
-Let's explore in [dataset](https://disc.gsfc.nasa.gov/information/tools?title=Hydrology%20Time%20Series)!
+You can see our source here: [dataset](https://disc.gsfc.nasa.gov/information/tools?title=Hydrology%20Time%20Series)!
 ## The app converts complex weather data into simple recommendations to help people choose where and when to go out.
 """
 
@@ -31,13 +34,87 @@ Let's explore in [dataset](https://disc.gsfc.nasa.gov/information/tools?title=Hy
 ""
 
 ""
+st.sidebar.header("⚙️ Options")
+selected_vars = st.sidebar.multiselect(
+    "Choose variables to display:",
+    options=['Rain probability', 'Heat probability','Cold probability','Windy probability', 'Very humid probability', 'Fog probability', 'Mean temperature','Mean wind','Mean humidity','Mean precipitation'] ,
+    default=['Rain probability', 'Mean temperature']
+)
+cols = st.columns(3)
+
+URL = "https://capimatica.onrender.com/describe"
+
+base = "http://capimatica.onrender.com"
+BASE = "http://capimatica.onrender.com"
+lat  = None
+lon = None
+date = None
+empty_probs = None
+empty_stats = None
+empty_pred= None
+
+hour= None
+
+# Helpers robustos
+def safe_get(d, key, default=None):
+    try:
+        return d.get(key, default) if isinstance(d, dict) else default
+    except Exception:
+        return default
+
+def to_float(x, default=0.0):
+    try:
+        return float(x)
+    except Exception:
+        return default
+
+def pct(x, nd=0, default=0.0):
+    """Convierte prob en [0..1] a porcentaje y redondea."""
+    try:
+        return round(float(x) * 100.0, nd)
+    except Exception:
+        return default
 
 
-def weather_explainer(temp_c, feels_c, humidity, wind_ms, rain_prob, uv):
-    return "El clima estará de la csmre de su reputaperra madre por la re mil puta que te pario"
+def get_weather_prediction(lat, lon, date, hour, window_minutes=60):
+    params = {
+        "lat": lat, "lon": lon, "date": date,
+        "hour": hour, "window_minutes": window_minutes
+    }
+    r = requests.get(f"{BASE}/weather", params=params, timeout=30)
+    r.raise_for_status()
+    data = r.json()
+    return data["prediction"] 
+
+   
+
+
+def describe_from_prediction(prediction: dict, activity: str | None = None) -> str:
+    # prediction ya tiene keys: fecha_consulta, tabla, n_muestras, probs, stats...
+    payload = {
+        "fecha_consulta": prediction.get("fecha_consulta"),
+        "tabla": prediction.get("tabla"),
+        "n_muestras": prediction.get("n_muestras"),
+        "prob_lluvia": prediction.get("prob_lluvia"),
+        "prob_calor": prediction.get("prob_calor"),
+        "prob_frio": prediction.get("prob_frio"),
+        "prob_viento": prediction.get("prob_viento"),
+        "prob_muy_humedo": prediction.get("prob_muy_humedo"),
+        "prob_neblina": prediction.get("prob_neblina"),
+        "note": prediction.get("note"),
+        "stats": prediction.get("stats"),  # dict con temp_C_mean, etc.
+        "activity": activity,              # opcional
+    }
+    r = requests.post(f"{BASE}/describe", json=payload, timeout=45)
+    r.raise_for_status()
+    return r.json().get("description", "")
+
+
+# INPUT
+
 col_map, col_right = st.columns([3, 2])
 
-
+# INPUT MAPA
 
 with col_map:
     st.markdown("### Where?")
@@ -55,311 +132,107 @@ with col_map:
 with col_right:
     sub1, sub2 = st.columns([1, 1])
     with sub1:
-        day = st.date_input("Date", value=datetime.utcnow().date())
+        date = st.date_input("Date", value=datetime.utcnow().date())
     with sub2:
         hour = st.slider("Hour", 0, 23, value=16)
 
     st.markdown("### Weather Explainer")
 
     with st.container(border=True):
-        # (Ejemplo con datos ficticios; cámbialos por los reales)
-        temp_c      = 24.2
-        feels_c     = 25.0
-        humidity    = 58
-        wind_ms     = 3.6
-        rain_prob   = 22
-        uv_index    = 6.5
+        try:
+            # 1) Obtener la predicción completa desde tu API
+            prediction = get_weather_prediction(lat, lon, date, hour)
 
-        # Lógica simple para texto descriptivo
-        narrative = weather_explainer(
-            temp_c=temp_c,
-            feels_c=feels_c,
-            humidity=humidity,
-            wind_ms=wind_ms,
-            rain_prob=rain_prob,
-            uv=uv_index
-        )
+            # 2) (Opcional) mostrar algunos valores en la UI
+            stats = prediction.get("stats", {}) or {}
+            probs = {
+                "prob_lluvia":     prediction.get("prob_lluvia", 0.0),
+                "prob_calor":      prediction.get("prob_calor", 0.0),
+                "prob_frio":       prediction.get("prob_frio", 0.0),
+                "prob_viento":     prediction.get("prob_viento", 0.0),
+                "prob_muy_humedo": prediction.get("prob_muy_humedo", 0.0),
+                "prob_neblina":    prediction.get("prob_neblina", 0.0),
+            }
 
-        st.markdown(narrative)
+            # Valores para mostrar (no son necesarios para el LLM)
+            temp_c   = float(stats.get("temp_C_mean", 24.2))
+            wind_ms  = float(stats.get("viento_ms_mean", 3.6))
+            hum_raw  = float(stats.get("humedad_mean", 0.58))
+            humidity = hum_raw * 100 if hum_raw <= 1 else hum_raw  # kg/kg -> %
+            rain_prob_pct = float(probs["prob_lluvia"]) * 100
 
-# Data de ejemplo
-weather_data = {
-    "Temperature (°C)": 26.4,
-    "Feels like (°C)": 27.0,
-    "Humidity (%)": 58,
-    "Wind speed (m/s)": 3.2,
-    "Rain probability (%)": 35,
-    "UV Index": 6.8,
-}
+            st.write(f"**Temp (mean):** {temp_c:.1f} °C  |  **Wind:** {wind_ms:.1f} m/s  |  **Humidity:** {humidity:.0f}%  |  **Rain prob:** {rain_prob_pct:.0f}%")
 
-df = pd.DataFrame(list(weather_data.items()), columns=["Variable", "Value"])
+            # 3) Actividad opcional desde UI
+            # activity = st.selectbox("Activity", ["", "hiking", "picnic", "cycling"]) or None
+            activity = None
 
-st.sidebar.header("⚙️ Options")
-selected_vars = st.sidebar.multiselect(
-    "Choose variables to display:",
-    options=['temp', 'sensación','humedad','viento', 'prob. de lluvia', 'UV'] ,
-    default=['temp', 'sensación','humedad','viento', 'prob. de lluvia', 'UV']
-)
-cols = st.columns(3)
+            # 4) Generar texto con /describe PASÁNDOLE prediction
+            with st.spinner("Generating weather summary..."):
+                narrative = describe_from_prediction(prediction, activity=activity)
 
+            st.markdown(narrative)
+
+        except requests.HTTPError as e:
+            st.error(f"API error: {e.response.text}")
+        except Exception as e:
+            st.error(f"Unexpected error: {e}")
 
 
-filtered_df = df[df["Variable"].isin(selected_vars)]
+# Probabilidades (0..1 -> %)
+p_lluvia  = pct(safe_get(prediction, "prob_lluvia"),   nd=1)
+p_calor   = pct(safe_get(prediction, "prob_calor"),    nd=1)
+p_frio    = pct(safe_get(prediction, "prob_frio"),     nd=1)
+p_viento  = pct(safe_get(prediction, "prob_viento"),   nd=1)
+p_muy_hum = pct(safe_get(prediction, "prob_muy_humedo"), nd=1)
+p_neblina = pct(safe_get(prediction, "prob_neblina"),  nd=2)
 
-for i, (var, val) in enumerate(zip(filtered_df["Variable"], filtered_df["Value"])):
-    with cols[i % 3]:
-        st.metric(label=var, value=f"{val}")
-st.subheader("📊 Graph of selected variables")
-if not filtered_df.empty:
-    chart = (
-        alt.Chart(filtered_df)
-        .mark_bar(color="#4c9aff")
-        .encode(
-            x=alt.X("Variable", sort=None, title="Weather Variables"),
-            y=alt.Y("Value", title="Value"),
-            tooltip=["Variable", "Value"]
-        )
-    )
-    st.altair_chart(chart, use_container_width=True)
-else:
-    st.info("Please select at least one variable to display the graph.")
+# Stats (vienen dentro de prediction['stats'])
+stats = safe_get(prediction, "stats", default={}) or {}
 
-# ---------------------------
-# Exportar a JSON
-# ---------------------------
-st.subheader("📥 Export data")
-if st.button("Export as JSON"):
-    json_str = json.dumps(filtered_df.set_index("Variable")["Value"].to_dict(), indent=4)
-    st.download_button(
-        label="⬇Download JSON",
-        data=json_str,
-        file_name="weather_data.json",
-        mime="application/json"
-    )
+temp_c      = to_float(safe_get(stats, "temp_C_mean"),       default=0.0)
+precip_mm_h = to_float(safe_get(stats, "precip_mm_h_mean"),  default=0.0)
+viento_ms   = to_float(safe_get(stats, "viento_ms_mean"),    default=0.0)
+hum_raw     = to_float(safe_get(stats, "humedad_mean"),      default=0.0)
 
+# Humedad: si está en [0..1] (kg/kg), la pasamos a %
+hum_pct     = hum_raw * 100.0 if hum_raw <= 1 else hum_raw
 
+st.markdown("### ⛅ Probabilities")
 
-
-df_2015 = full_df[full_df["date"].dt.year == 2015]
-df_2014 = full_df[full_df["date"].dt.year == 2014]
-
-max_temp_2015 = df_2015["temp_max"].max()
-max_temp_2014 = df_2014["temp_max"].max()
-
-min_temp_2015 = df_2015["temp_min"].min()
-min_temp_2014 = df_2014["temp_min"].min()
-
-max_wind_2015 = df_2015["wind"].max()
-max_wind_2014 = df_2014["wind"].max()
-
-min_wind_2015 = df_2015["wind"].min()
-min_wind_2014 = df_2014["wind"].min()
-
-max_prec_2015 = df_2015["precipitation"].max()
-max_prec_2014 = df_2014["precipitation"].max()
-
-min_prec_2015 = df_2015["precipitation"].min()
-min_prec_2014 = df_2014["precipitation"].min()
-
-
-
-weather_data = {
-    "Temperature (°C)": 26.4,
-    "Feels like (°C)": 27.0,
-    "Humidity (%)": 58,
-    "Wind speed (m/s)": 3.2,
-    "Rain probability (%)": 35,
-    "UV Index": 6.8,
-}
-with st.container(horizontal=True, gap="medium"):
-    cols = st.columns(2, gap="medium", width=300)
-
+with st.container():
+    cols = st.columns(3, gap="medium")
     with cols[0]:
-        st.metric(
-            "Max tempearture",
-            f"{max_temp_2015:0.1f}C",
-            delta=f"{max_temp_2015 - max_temp_2014:0.1f}C",
-            width="content",
-        )
-
+        st.metric("Rain probability", p_lluvia)
     with cols[1]:
-        st.metric(
-            "Min tempearture",
-            f"{min_temp_2015:0.1f}C",
-            delta=f"{min_temp_2015 - min_temp_2014:0.1f}C",
-            width="content",
-        )
+        st.metric("Heat probability", p_calor)
+    with cols[2]:
+        st.metric("Cold probability", p_frio)
 
-    cols = st.columns(2, gap="medium", width=300)
-
+    cols = st.columns(3, gap="medium")
     with cols[0]:
-        st.metric(
-            "Max precipitation",
-            f"{max_prec_2015:0.1f}C",
-            delta=f"{max_prec_2015 - max_prec_2014:0.1f}C",
-            width="content",
-        )
-
+        st.metric("Windy probability", p_viento)
     with cols[1]:
-        st.metric(
-            "Min precipitation",
-            f"{min_prec_2015:0.1f}C",
-            delta=f"{min_prec_2015 - min_prec_2014:0.1f}C",
-            width="content",
-        )
+        st.metric("Very humid probability", p_muy_hum)
+    with cols[2]:
+        st.metric("Fog probability", p_neblina)
 
-    cols = st.columns(2, gap="medium", width=300)
-
+st.markdown("### 📊 Aggregated stats")
+with st.container():
+    cols = st.columns(4, gap="medium")
     with cols[0]:
-        st.metric(
-            "Max wind",
-            f"{max_wind_2015:0.1f}m/s",
-            delta=f"{max_wind_2015 - max_wind_2014:0.1f}m/s",
-            width="content",
-        )
-
+        st.metric("Mean temperature", f"{temp_c:.1f} °C")
     with cols[1]:
-        st.metric(
-            "Min wind",
-            f"{min_wind_2015:0.1f}m/s",
-            delta=f"{min_wind_2015 - min_wind_2014:0.1f}m/s",
-            width="content",
-        )
+        st.metric("Mean wind", f"{viento_ms:.1f} m/s")
+    with cols[2]:
+        st.metric("Mean humidity", f"{hum_pct:.0f} %")
+    with cols[3]:
+        st.metric("Mean precipitation", f"{precip_mm_h:.3f} mm/h")
 
-    cols = st.columns(2, gap="medium", width=300)
-
-    weather_icons = {
-        "sun": "☀️",
-        "snow": "☃️",
-        "rain": "💧",
-        "fog": "😶‍🌫️",
-        "drizzle": "🌧️",
-    }
-
-    with cols[0]:
-        weather_name = (
-            full_df["weather"].value_counts().head(1).reset_index()["weather"][0]
-        )
-        st.metric(
-            "Most common weather",
-            f"{weather_icons[weather_name]} {weather_name.upper()}",
-        )
-
-    with cols[1]:
-        weather_name = (
-            full_df["weather"].value_counts().tail(1).reset_index()["weather"][0]
-        )
-        st.metric(
-            "Least common weather",
-            f"{weather_icons[weather_name]} {weather_name.upper()}",
-        )
+# Si tienes un campo note en la predicción:
+note = prediction.get("note") if "prediction" in locals() else None
+if note:
+    st.info(f"Note: {note}")
 
 ""
 ""
-
-
-
-
-# """
-# ## Compare different years
-# """
-
-# YEARS = full_df["date"].dt.year.unique()
-# selected_years = st.pills(
-#     "Years to compare", YEARS, default=YEARS, selection_mode="multi"
-# )
-
-# if not selected_years:
-#     st.warning("You must select at least 1 year.", icon=":material/warning:")
-
-# df = full_df[full_df["date"].dt.year.isin(selected_years)]
-
-# cols = st.columns([3, 1])
-
-# with cols[0].container(border=True, height="stretch"):
-#     "### Temperature"
-
-#     st.altair_chart(
-#         alt.Chart(df)
-#         .mark_bar(width=1)
-#         .encode(
-#             alt.X("date", timeUnit="monthdate").title("date"),
-#             alt.Y("temp_max").title("temperature range (C)"),
-#             alt.Y2("temp_min"),
-#             alt.Color("date:N", timeUnit="year").title("year"),
-#             alt.XOffset("date:N", timeUnit="year"),
-#         )
-#         .configure_legend(orient="bottom")
-#     )
-
-# with cols[1].container(border=True, height="stretch"):
-#     "### Weather distribution"
-
-#     st.altair_chart(
-#         alt.Chart(df)
-#         .mark_arc()
-#         .encode(
-#             alt.Theta("count()"),
-#             alt.Color("weather:N"),
-#         )
-#         .configure_legend(orient="bottom")
-#     )
-
-
-# cols = st.columns(2)
-
-# with cols[0].container(border=True, height="stretch"):
-#     "### Wind"
-
-#     st.altair_chart(
-#         alt.Chart(df)
-#         .transform_window(
-#             avg_wind="mean(wind)",
-#             std_wind="stdev(wind)",
-#             frame=[0, 14],
-#             groupby=["monthdate(date)"],
-#         )
-#         .mark_line(size=1)
-#         .encode(
-#             alt.X("date", timeUnit="monthdate").title("date"),
-#             alt.Y("avg_wind:Q").title("average wind past 2 weeks (m/s)"),
-#             alt.Color("date:N", timeUnit="year").title("year"),
-#         )
-#         .configure_legend(orient="bottom")
-#     )
-
-# with cols[1].container(border=True, height="stretch"):
-#     "### Precipitation"
-
-#     st.altair_chart(
-#         alt.Chart(df)
-#         .mark_bar()
-#         .encode(
-#             alt.X("date:N", timeUnit="month").title("date"),
-#             alt.Y("precipitation:Q").aggregate("sum").title("precipitation (mm)"),
-#             alt.Color("date:N", timeUnit="year").title("year"),
-#         )
-#         .configure_legend(orient="bottom")
-#     )
-
-# cols = st.columns(2)
-
-# with cols[0].container(border=True, height="stretch"):
-#     "### Monthly weather breakdown"
-#     ""
-
-#     st.altair_chart(
-#         alt.Chart(df)
-#         .mark_bar()
-#         .encode(
-#             alt.X("month(date):O", title="month"),
-#             alt.Y("count():Q", title="days").stack("normalize"),
-#             alt.Color("weather:N"),
-#         )
-#         .configure_legend(orient="bottom")
-#     )
-
-# with cols[1].container(border=True, height="stretch"):
-#     "### Raw data"
-
-#     st.dataframe(df)
