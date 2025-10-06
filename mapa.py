@@ -167,8 +167,12 @@ with col_right:
     with sub1:
         date = st.date_input("Date", value=datetime.utcnow().date())
     with sub2:
-        hour = st.slider("Hour", 0, 23, value=16)
-
+        hour = st.selectbox(
+            "Hour",
+            options=list(range(24)),          # 0..23
+            index=16,                         # valor inicial
+            format_func=lambda h: f"{h:02d}:00"  # muestra 00:00, 01:00, ..., 23:00
+        )
     st.markdown("### Weather Explainer")
 
     with st.container(border=True):
