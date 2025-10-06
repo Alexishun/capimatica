@@ -17,7 +17,7 @@ full_df = vega_datasets.data("seattle_weather")
 
 st.set_page_config(
     # Title and icon for the browser's tab bar:
-    page_title="Capimatica ",
+    page_title="Eyes on the Sky ",
     page_icon="🌦️",
     # Make the content take up the width of the page:
     layout="wide",
@@ -25,10 +25,17 @@ st.set_page_config(
 
 
 """
-# Is todate good for ....  hiking, picnic, biking, surfing, BBQ with friends?
+# Eyes on the Sky
+## Is todate good for ....  hiking, picnic, biking, surfing, BBQ with friends?
 
 You can see our source here: [dataset](https://disc.gsfc.nasa.gov/information/tools?title=Hydrology%20Time%20Series)!
-## The app converts complex weather data into simple recommendations to help people choose where and when to go out.
+### The app converts complex weather data into simple recommendations to help people choose where and when to go out.
+
+## **Instructions**  
+1. In the left panel, choose the variables you want to display for the prediction.  
+2. Select the location and date/time of your planned activity.  
+3. Click **Get forecast** to generate the weather summary.
+Optinal: You can export in json :)
 """
 
 ""  # Add a little vertical space. Same as st.write("").
@@ -66,6 +73,11 @@ if "prediction" not in st.session_state:
     st.session_state.prediction = None
 if "api_error" not in st.session_state:
     st.session_state.api_error = None
+if "narrative" not in st.session_state:          # <--- NUEVO
+    st.session_state.narrative = None            # <--- NUEVO
+if "last_query" not in st.session_state:         # (opcional) para recordar la última consulta
+    st.session_state.last_query = None
+
 
 # Helpers robustos
 def safe_get(d, key, default=None):
@@ -170,11 +182,12 @@ with col_right:
                     st.session_state.api_error = None
                     pred = get_weather_prediction(lat, lon, date, hour)
                     st.session_state.prediction = pred
+                    st.session_state.last_query = {"lat": lat, "lon": lon, "date": str(date), "hour": hour}  # opcional
 
-                    # (Opcional) texto del LLM
+                    # Genera y GUARDA la descripción
                     with st.spinner("Generating weather summary..."):
                         narrative = describe_from_prediction(pred, activity=None)
-                    st.markdown(narrative)
+                    st.session_state.narrative = narrative   # <--- CLAVE
 
                 except requests.HTTPError as e:
                     st.session_state.api_error = e.response.text
@@ -184,6 +197,8 @@ with col_right:
             # Muestra error de API si lo hubo
             if st.session_state.api_error:
                 st.error(f"API error: {st.session_state.api_error}")
+    if st.session_state.narrative:                    
+        st.markdown(st.session_state.narrative)       
 
 prediction = st.session_state.prediction
 
@@ -277,8 +292,62 @@ if prediction:
     render_kpi_rows([k for k in kpis_selected if k["group"] == "prob"], "⛅ Probabilities")
     render_kpi_rows([k for k in kpis_selected if k["group"] == "stat"], "📊 Aggregated stats")
     note = prediction.get("note")
+
+    st.write("")
+    # ==== Probabilities chart (responde a selected_vars) ====
+    probs_all = [
+        {"label": "Rain probability",       "name": "Rain",       "value": p_lluvia},
+        {"label": "Heat probability",       "name": "Heat",       "value": p_calor},
+        {"label": "Cold probability",       "name": "Cold",       "value": p_frio},
+        {"label": "Windy probability",      "name": "Windy",      "value": p_viento},
+        {"label": "Very humid probability", "name": "Very humid", "value": p_muy_hum},
+        {"label": "Fog probability",        "name": "Fog",        "value": p_neblina},
+    ]
+
+    # Filtrar según las variables elegidas
+    probs_df = pd.DataFrame([p for p in probs_all if p["label"] in selected_set])
+
+    # Solo mostrar si hay algo que graficar
+    if not probs_df.empty:
+        st.markdown("## 🌡️ Probabilities Overview")
+        st.write("")   # espacio arriba
+
+        bar = (
+            alt.Chart(probs_df)
+            .mark_bar(size=40)
+            .encode(
+                y=alt.Y("name:N", sort="-x", title=None),
+                x=alt.X("value:Q", title="Probability (%)"),
+                tooltip=[
+                    "name",
+                    alt.Tooltip("value:Q", format=".1f")
+                ]
+            )
+            .properties(
+                width=700,    # más ancho
+                height=300,   # más alto
+                title="Weather Event Probabilities"
+            )
+        )
+
+        text = (
+            alt.Chart(probs_df)
+            .mark_text(align="left", dx=3, fontSize=14)
+            .encode(
+                y="name:N",
+                x="value:Q",
+                text=alt.Text("value:Q", format=".1f")
+            )
+        )
+
+        st.altair_chart(bar + text, use_container_width=False)
+
+        # espacio debajo
+        st.markdown("<br><br>", unsafe_allow_html=True)
+
     if note:
         st.info(f"Note: {note}")
 else:
     # Nada seleccionado todavía → no romper; UI limpia
     st.caption("Pick a location, date and hour, then click **Get forecast**.")
+
