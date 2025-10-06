@@ -8,6 +8,7 @@ from folium.plugins import Fullscreen, MiniMap, MeasureControl, MousePosition
 import altair as alt
 import requests
 from typing import Dict, Any, Tuple
+import json
 
 
 from streamlit_folium import st_folium
@@ -40,6 +41,12 @@ selected_vars = st.sidebar.multiselect(
     options=['Rain probability', 'Heat probability','Cold probability','Windy probability', 'Very humid probability', 'Fog probability', 'Mean temperature','Mean wind','Mean humidity','Mean precipitation'] ,
     default=['Rain probability', 'Mean temperature']
 )
+selected_set = set(selected_vars)
+
+st.sidebar.markdown("### 📥 Export")
+export_click = st.sidebar.button("Export JSON")
+
+
 cols = st.columns(3)
 
 URL = "https://capimatica.onrender.com/describe"
@@ -72,7 +79,16 @@ def to_float(x, default=0.0):
         return float(x)
     except Exception:
         return default
-
+def render_kpi_rows(items, title):
+    if not items:
+        return
+    st.markdown(f"### {title}")
+    for i in range(0, len(items), 3):
+        row  = items[i:i+3]
+        cols = st.columns(3, gap="medium")
+        for col, item in zip(cols, row):
+            with col:
+                st.metric(item["label"], item["value"])
 def pct(x, nd=0, default=0.0):
     """Convierte prob en [0..1] a porcentaje y redondea."""
     try:
@@ -170,6 +186,45 @@ with col_right:
                 st.error(f"API error: {st.session_state.api_error}")
 
 prediction = st.session_state.prediction
+
+
+if export_click:
+    # Validación básica
+    if lat is None or lon is None or date is None or hour is None:
+        st.sidebar.warning("Selecciona ubicación en el mapa, fecha y hora antes de exportar.")
+    else:
+        try:
+            pred = get_weather_prediction(lat, lon, date, hour)
+
+            payload = {
+                "query": {
+                    "lat": float(lat),
+                    "lon": float(lon),
+                    "date": str(date),      # "YYYY-MM-DD"
+                    "hour": int(hour),
+                    "window_minutes": 60,   # ajusta si usas otro valor
+                },
+                "prediction": pred,
+            }
+
+            json_bytes = json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")
+            fname = f"weather_{date}_{hour:02d}_{lat:.4f}_{lon:.4f}.json".replace(":", "")
+
+            st.sidebar.download_button(
+                label="⬇️ Download JSON",
+                data=json_bytes,
+                file_name=fname,
+                mime="application/json",
+            )
+
+        except requests.HTTPError as e:
+            st.sidebar.error(f"API error: {e.response.text}")
+        except Exception as e:
+            st.sidebar.error(f"Unexpected: {e}")
+
+
+
+
 if prediction:
     # Helpers
     def safe_get(d, key, default=None):
@@ -203,26 +258,24 @@ if prediction:
     hum_pct     = hum_raw * 100.0 if hum_raw <= 1 else hum_raw
 
     # Render dinámico según selected_vars (opcional: usa tu bloque dinámico)
-    st.markdown("### ⛅ Probabilities")
-    with st.container():
-        cols = st.columns(3, gap="medium")
-        with cols[0]: st.metric("Rain probability", p_lluvia)
-        with cols[1]: st.metric("Heat probability", p_calor)
-        with cols[2]: st.metric("Cold probability", p_frio)
+    kpis = [
+    # Probabilities
+    {"label": "Rain probability",        "value": f"{p_lluvia:.1f} %",   "group": "prob"},
+    {"label": "Heat probability",        "value": f"{p_calor:.1f} %",    "group": "prob"},
+    {"label": "Cold probability",        "value": f"{p_frio:.1f} %",     "group": "prob"},
+    {"label": "Windy probability",       "value": f"{p_viento:.1f} %",   "group": "prob"},
+    {"label": "Very humid probability",  "value": f"{p_muy_hum:.1f} %",  "group": "prob"},
+    {"label": "Fog probability",         "value": f"{p_neblina:.2f} %",  "group": "prob"},
 
-        cols = st.columns(3, gap="medium")
-        with cols[0]: st.metric("Windy probability", p_viento)
-        with cols[1]: st.metric("Very humid probability", p_muy_hum)
-        with cols[2]: st.metric("Fog probability", p_neblina)
-
-    st.markdown("### 📊 Aggregated stats")
-    with st.container():
-        cols = st.columns(4, gap="medium")
-        with cols[0]: st.metric("Mean temperature", f"{temp_c:.1f} °C")
-        with cols[1]: st.metric("Mean wind", f"{viento_ms:.1f} m/s")
-        with cols[2]: st.metric("Mean humidity", f"{hum_pct:.0f} %")
-        with cols[3]: st.metric("Mean precipitation", f"{precip_mm_h:.3f} mm/h")
-
+    # Aggregated stats
+    {"label": "Mean temperature",        "value": f"{temp_c:.1f} °C",    "group": "stat"},
+    {"label": "Mean wind",               "value": f"{viento_ms:.1f} m/s","group": "stat"},
+    {"label": "Mean humidity",           "value": f"{hum_pct:.0f} %",    "group": "stat"},
+    {"label": "Mean precipitation",      "value": f"{precip_mm_h:.3f} mm/h", "group": "stat"},
+    ]
+    kpis_selected = [k for k in kpis if k["label"] in selected_set]
+    render_kpi_rows([k for k in kpis_selected if k["group"] == "prob"], "⛅ Probabilities")
+    render_kpi_rows([k for k in kpis_selected if k["group"] == "stat"], "📊 Aggregated stats")
     note = prediction.get("note")
     if note:
         st.info(f"Note: {note}")
