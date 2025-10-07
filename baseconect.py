@@ -1,24 +1,27 @@
 import pymysql
 import pandas as pd
 from sqlalchemy import create_engine
+import os 
+from dotenv import load_dotenv
+load_dotenv()
 
 # --- Crear motor SQLAlchemy ---
-USER     = "avnadmin"
-PASSWORD = "AVNS_V33wHPTnvdpr9Lw9HRD"
-HOST     = "capimatica-mysql-capimatica.d.aivencloud.com"
-PORT     = 12284
-DB       = "defaultdb"
+USER     = os.getenv("USER")
+PASSWORD = os.getenv("PASSWORD")
+HOST     = os.getenv("HOST")
+PORT     = os.getenv("PORT")
+DB       = os.getenv("DB")
 conn_str = f"mysql+pymysql://{USER}:{PASSWORD}@{HOST}:{PORT}/{DB}"
 engine = create_engine(conn_str)
 
 
 def align_to_hour(df):
     df = df.copy()
-    df['x'] = pd.to_datetime(df['x'], utc=True).dt.floor('h')  # 2019-12-27T00:30:00Z -> 2019-12-27 00:00:00+00:00
+    df['x'] = pd.to_datetime(df['x'], utc=True).dt.floor('h')
     return df
 
 lugar = 'lima'
-df = pd.read_csv(f"bases en csv/{lugar} hum.csv")       # reemplaza con tu CSV
+df = pd.read_csv(f"bases en csv/{lugar} hum.csv")  
 df1 = pd.read_csv(f"bases en csv/{lugar} precipitacion.csv")
 df2 = pd.read_csv(f"bases en csv/{lugar} speed.csv")
 df3= pd.read_csv(f"bases en csv/{lugar} temp.csv")

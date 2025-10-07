@@ -1,16 +1,19 @@
 import pymysql
 
 timeout = 10
+from dotenv import load_dotenv
+load_dotenv()
+
 connection = pymysql.connect(
   charset="utf8mb4",
   connect_timeout=timeout,
   cursorclass=pymysql.cursors.DictCursor,
-  db="defaultdb",
-  host="capimatica-mysql-capimatica.d.aivencloud.com",
-  password="AVNS_V33wHPTnvdpr9Lw9HRD",
+  db=os.getenv("DB"),
+  host=os.getenv("HOST")
+  password=os.getenv("PASSWORD"),
   read_timeout=timeout,
   port=12284,
-  user="avnadmin",
+  user=os.getenv("USER"),
   write_timeout=timeout,
 )
 
